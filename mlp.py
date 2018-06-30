@@ -15,7 +15,7 @@ class MLP:
 
 
   def __init__(self):
-    pass
+    self.sess = tf.InteractiveSession()
 
   def set_config(self, config):
     self.num_classes = config.get('num_classes', self.num_classes)
@@ -31,12 +31,13 @@ class MLP:
 
   @staticmethod
   def _weight_variable(shape):
-    initial = tf.truncated_normal(shape, stddev=0.1)
+    #initial = tf.truncated_normal(shape, stddev=0.01)
+    initial = tf.truncated_normal(shape, stddev=0.001)
     return tf.Variable(initial)
 
   @staticmethod
   def _bias_variable(shape):
-    initial = tf.constant(0.1, shape=shape)
+    initial = tf.constant(0.001, shape=shape)
     return tf.Variable(initial)
 
   @staticmethod
@@ -66,62 +67,81 @@ class MLP:
     
     return matrix
 
-  def run(self, x_data, y_data,
-      print_prog=False):
+  def run(self, x_data, y_data, print_prog=False):
     '''
     x_data and y_data should be a tuple of (train, test)
     '''
-    sess = tf.InteractiveSession()
-    x  = tf.placeholder(tf.float32, shape=(None, self.input_size))
-    y_ = tf.placeholder(tf.float32, shape=(None, self.num_classes))
-    keep_prob = tf.placeholder("float")
-
-    
-    W_1 = MLP._weight_variable((self.input_size,self.hidden_size))
-    b_1 = MLP._bias_variable((self.hidden_size,))
-    h_1 = tf.matmul(x,W_1) + b_1
-
-    #h_1 = tf.nn.dropout(tf.matmul(x,W_1) + b_1, keep_prob=self.keep_prob)*(1/keep_prob)
-
-    W_2 = MLP._weight_variable((self.hidden_size, self.num_classes))
-    b_2 = MLP._bias_variable((self.num_classes,))
-    
-    # h_fc1_drop = tf.nn.dropout(h_fc1, keep_prob)
-
-    #y = tf.nn.dropout(tf.nn.softmax(tf.matmul(h_1,W_2) + b_2), keep_prob)*(1/keep_prob)
-    y = tf.nn.softmax(tf.matmul(h_1,W_2) + b_2)
-
-    all_weights = tf.concat(0, [tf.reshape(W_1, [-1]), tf.reshape(W_2, [-1])])
-    weight_decay = self.lam\
-        *tf.reduce_sum(all_weights**2.0)/(2.0*tf.to_float(tf.size(all_weights)))
-
-    cross_entropy = -tf.reduce_sum(y_ * tf.log(y))
-    #false_positives = tf.slice(tf.matmul(tf.transpose(y),y_), [1,0], [1,1])
-    #false_negatives = tf.slice(tf.matmul(tf.transpose(y),y_), [0,1], [1,1])
+    tf.reset_default_graph()
+    sess = tf.Session()
 
 
-    cost = cross_entropy + weight_decay
-    train_step = tf.train.AdamOptimizer(self.learning_rate).minimize(cost)
+    with sess.as_default():
 
-    sess.run(tf.initialize_all_variables())
+      x  = tf.placeholder(tf.float32, shape=(None, self.input_size))
+      y_ = tf.placeholder(tf.float32, shape=(None, self.num_classes))
+      keep_prob = tf.placeholder("float")
 
-    t_class_bias = tf.constant(self.class_bias)
-    correct = tf.equal(tf.argmax(y+t_class_bias,1), tf.argmax(y_,1))
-    accuracy = tf.reduce_mean(tf.cast(correct, tf.float32))
-    mean_error = tf.reduce_mean(abs(y-y_))
-
-    for i in range(self.iterations):
-      batch = (x_data[0].take(range(i,i+self.batch_size), axis=(0), mode='wrap')
-        , y_data[0].take(range(i,i+self.batch_size), axis=(0), mode='wrap'))
       
-      train_step.run(feed_dict={x:batch[0], y_:batch[1], keep_prob:self.keep_prob})
-      if print_prog and not i % 1000:
-        print(str(i) + "/" + str(self.iterations))
-        print(accuracy.eval(feed_dict={x: x_data[0][:], y_: y_data[0][:], keep_prob:1.0}))
+      W_1 = MLP._weight_variable((self.input_size,self.hidden_size))
+      b_1 = MLP._bias_variable((self.hidden_size,))
+      h_1 = tf.matmul(x,W_1) + b_1
 
-    confusion = MLP._build_conf_matrix((y+t_class_bias).eval(feed_dict={x: x_data[1][:], y_: y_data[1][:], keep_prob:1.0}), y_data[1][:])
-    if print_prog:
-      test_acc = accuracy.eval(feed_dict={x: x_data[1][:], y_: y_data[1][:], keep_prob:1.0})
-      print("Test acc: " + str(test_acc))
+      #h_1 = tf.nn.dropout(tf.matmul(x,W_1) + b_1, keep_prob=self.keep_prob)*(1/keep_prob)
+
+      W_2 = MLP._weight_variable((self.hidden_size, self.num_classes))
+      b_2 = MLP._bias_variable((self.num_classes,))
+      
+      # h_fc1_drop = tf.nn.dropout(h_fc1, keep_prob)
+
+      #y = tf.nn.dropout(tf.nn.softmax(tf.matmul(h_1,W_2) + b_2), keep_prob)*(1/keep_prob)
+      y = tf.nn.softmax(tf.matmul(h_1,W_2) + b_2)
+
+      #all_weights = tf.concat(0, [tf.reshape(W_1, [-1]), tf.reshape(W_2, [-1])])
+      all_weights = tf.concat([tf.reshape(W_1, [-1]), tf.reshape(W_2, [-1])], 0)
+      weight_decay = self.lam\
+          *tf.reduce_sum(all_weights**2.0)/(2.0*tf.to_float(tf.size(all_weights)))
+
+      cross_entropy = -tf.reduce_mean(y_ * tf.log(y+1e-8))
+      #false_positives = tf.slice(tf.matmul(tf.transpose(y),y_), [1,0], [1,1])
+      #false_negatives = tf.slice(tf.matmul(tf.transpose(y),y_), [0,1], [1,1])
+
+
+      cost = cross_entropy + weight_decay
+      train_step = tf.train.AdamOptimizer(self.learning_rate).minimize(cost)
+
+      #self.sess.run(tf.global_variables_initializer())
+      sess.run(tf.global_variables_initializer())
+
+      t_class_bias = tf.constant(self.class_bias)
+      correct = tf.equal(tf.argmax(y+t_class_bias,1), tf.argmax(y_,1))
+      accuracy = tf.reduce_mean(tf.cast(correct, tf.float32))
+      mean_error = tf.reduce_mean(abs(y-y_))
+
+      for i in range(self.iterations):
+        batch = (x_data[0].take(range(i,i+self.batch_size), axis=(0), mode='wrap')
+          , y_data[0].take(range(i,i+self.batch_size), axis=(0), mode='wrap'))
+        
+        train_step.run(feed_dict={x:batch[0], y_:batch[1], keep_prob:self.keep_prob})
+
+        if print_prog and not i % 1000:
+          print(str(i) + "/" + str(self.iterations))
+          print(accuracy.eval(feed_dict={x: x_data[0][:], y_: y_data[0][:], keep_prob:1.0}))
+
+        if not i % 200:
+          #print("train:",cost.eval(feed_dict={x:batch[0], y_:batch[1], keep_prob:1.0})/self.batch_size)
+          batch_fd = {x:batch[0], y_:batch[1], keep_prob:1.0}
+          #print(tf.reduce_mean(tf.abs(W_2)).eval())
+          #print(y.eval(feed_dict=batch_fd))
+          #print(cost.eval(feed_dict=batch_fd))
+          #print(MLP._build_conf_matrix((y+t_class_bias).eval(feed_dict=batch_fd), y_data[1][:]))
+
+      #print("train:",cost.eval(feed_dict={x: x_data[0][:], y_: y_data[0][:], keep_prob:1.0}))
+      #print("test:",cost.eval(feed_dict={x: x_data[1][:], y_: y_data[1][:], keep_prob:1.0}))
+      #print()
+
+      confusion = MLP._build_conf_matrix((y+t_class_bias).eval(feed_dict={x: x_data[1][:], y_: y_data[1][:], keep_prob:1.0}), y_data[1][:])
+      if print_prog:
+        test_acc = accuracy.eval(feed_dict={x: x_data[1][:], y_: y_data[1][:], keep_prob:1.0})
+        print("Test acc: " + str(test_acc))
     return confusion
 
